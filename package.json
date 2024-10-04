@@ -2,10 +2,16 @@
   "name": "AwsLambdaSimpleEmailService",
   "version": "1.0.0",
   "description": "AWS SES triggered by Lambda",
-  "main": "index.ts",
+  "main": "build/index.js",
   "repository": "https://github.com/ManueleNolli/AwsLambdaSimpleEmailService.git",
   "author": "Manuele Nolli",
   "license": "MIT",
+  "type": "module",
+    "scripts": {
+    "build": "tsc && cp package.json build/ && cp .env build/",
+    "clean": "rm -rf build",
+    "start": "node build/index.js"
+  },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.662.0",
     "aws-lambda": "^1.0.7",
