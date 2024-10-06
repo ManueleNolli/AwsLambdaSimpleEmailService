@@ -1,7 +1,7 @@
 import 'dotenv/config'
 
 import {APIGatewayProxyEvent, Handler} from 'aws-lambda';
-import {sendEmail} from "./services/ses";
+import {sendEmail} from "./services/ses.js";
 
 const emailVerification = (email: string) => {
     const emailRegex = new RegExp(/^[\w._-]+[+]?[\w._-]+@[\w.-]+\.[a-zA-Z]{2,6}$/)
