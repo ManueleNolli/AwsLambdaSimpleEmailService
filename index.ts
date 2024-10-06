@@ -2,7 +2,6 @@ import 'dotenv/config'
 
 import {APIGatewayProxyEvent, Handler} from 'aws-lambda';
 import {sendEmail} from "./services/ses";
-import {json} from "node:stream/consumers";
 
 const emailVerification = (email: string) => {
     const emailRegex = new RegExp(/^[\w._-]+[+]?[\w._-]+@[\w.-]+\.[a-zA-Z]{2,6}$/)
@@ -25,7 +24,13 @@ const isMessageValid = (message: string) => {
     return message.length > 0
 }
 
-const validateFields = (source: string | undefined, to: string | undefined, subject: string | undefined, message: string | undefined) => {
+const validateFields = (body: string | null) => {
+    if (!body) {
+        throw new Error('Body is empty')
+    }
+
+    const {source, to, subject, message} = JSON.parse(body)
+
     if (!source || !to || !subject || !message) {
         throw new Error('Please fill all fields')
     }
@@ -50,15 +55,9 @@ const validateFields = (source: string | undefined, to: string | undefined, subj
 }
 
 export const handler: Handler = async (event: APIGatewayProxyEvent, context) => {
-    const params = event.body
-
-    let source = params?.source
-    let to = params?.to
-    let subject = params?.subject
-    let message = params?.message
-
+    let source, to, subject, message
     try {
-        ({source, to, subject, message} = validateFields(source, to, subject, message));
+        ({source, to, subject, message} = validateFields(event.body));
     } catch (error: any) {
         return {
             statusCode: 400,
