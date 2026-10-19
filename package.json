@@ -7,7 +7,7 @@
   "author": "Manuele Nolli",
   "license": "MIT",
   "type": "module",
-    "scripts": {
+  "scripts": {
     "build": "tsc && cp package.json build/ && cp .env build/",
     "clean": "rm -rf build",
     "start": "node build/index.js"
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.145",
-    "@types/node": "^22.7.4"
+    "@types/node": "^24",
+    "typescript": "^7"
   }
 }

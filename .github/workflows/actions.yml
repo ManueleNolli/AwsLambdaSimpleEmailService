@@ -14,7 +14,7 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run tests
         run: echo "Passed as always :)"
 
@@ -24,17 +24,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [ 22.x ]
+        node-version: [ 24.x ]
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Get yarn cache directory path
         id: yarn-cache-dir-path
         run: echo "dir=$(yarn cache dir)" >> $GITHUB_OUTPUT
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: yarn-cache
         with:
           path: |
@@ -45,7 +45,7 @@ jobs:
             ${{ runner.os }}-nextjs-${{ hashFiles('**/yarn.lock') }}-
 
       - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
 
@@ -55,15 +55,19 @@ jobs:
       - run: yarn install --frozen-lockfile
       - run: yarn build
 
+      # The Lambda layer is built from node_modules: keep only the runtime dependencies
+      - name: Remove dev dependencies
+        run: yarn install --frozen-lockfile --production
+
       - name: Share build files
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
             name: build
             include-hidden-files: true
             path: build
 
       - name: Share node_modules
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: node_modules
           include-hidden-files: true
@@ -73,11 +77,15 @@ jobs:
     name: Upload code to S3
     runs-on: ubuntu-latest
     needs: build
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write # OIDC token to assume the AWS deploy role
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download static files from previous job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: build
           path: build
@@ -86,10 +94,9 @@ jobs:
         run: cd build && zip -r ${{ vars.CODE_ZIP_NAME }}.zip .
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v3
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Upload standalone built files to S3
@@ -99,11 +106,15 @@ jobs:
     name: Upload dependencies to S3
     runs-on: ubuntu-latest
     needs: build
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write # OIDC token to assume the AWS deploy role
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download dependencies files from previous job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: node_modules
           path: nodejs/node_modules
@@ -112,10 +123,9 @@ jobs:
         run: zip -r ${{ vars.DEPENDENCIES_ZIP_NAME }}.zip nodejs
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v3
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Upload standalone built files to S3
@@ -125,19 +135,25 @@ jobs:
     name: Update Lambda function with new zip(s)
     runs-on: ubuntu-latest
     needs: [ upload_code, upload_dependencies ]
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write # OIDC token to assume the AWS deploy role
 
     steps:
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v3
+        uses: aws-actions/configure-aws-credentials@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: Dependencies step 1 - Publish new version
         run: aws lambda publish-layer-version --layer-name ${{ secrets.AWS_LAMBDA_LAYER_NAME }} --content S3Bucket=${{ secrets.AWS_S3_BUCKET_CODE_NAME }},S3Key=${{ vars.DEPENDENCIES_ZIP_NAME }}.zip
       - name: Upload code to Lambda
         run: aws lambda update-function-code --function-name ${{ secrets.AWS_LAMBDA_FUNCTION_NAME }} --s3-bucket ${{ secrets.AWS_S3_BUCKET_CODE_NAME }} --s3-key ${{ vars.CODE_ZIP_NAME }}.zip
+
+      # Code updates are asynchronous: the configuration can't change until it completes
+      - name: Wait for the code update to complete
+        run: aws lambda wait function-updated --function-name ${{ secrets.AWS_LAMBDA_FUNCTION_NAME }}
 
       - name: Dependencies step 2 - Fetch new layer version
         run: echo "AWS_LAMBDA_LAYER_VERSION=$(aws lambda list-layer-versions --layer-name ${{ secrets.AWS_LAMBDA_LAYER_NAME }} --query 'LayerVersions[0].Version' --output text)" >> $GITHUB_ENV
